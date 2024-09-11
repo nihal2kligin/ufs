@@ -1,5 +1,4 @@
 import 'dart:io';
-
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
@@ -91,25 +90,15 @@ class HomeController extends GetxController {
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
 
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        // Handle notification tap or other user interactions
+        print('Notification tapped with payload: ${response.payload}');
+      },
+    );
 
     await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(channel);
-
-    // Show a test notification to verify setup
-    await flutterLocalNotificationsPlugin.show(
-      0,
-      'Hello',
-      'This is a local notification',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'alarm_channel_id',
-          'Alarm Channel',
-          importance: Importance.max,
-          priority: Priority.high,
-        ),
-      ),
-      payload: 'item x',
-    );
   }
 
   Future<void> setAlarm(AlarmModel alarm) async {
@@ -122,6 +111,8 @@ class HomeController extends GetxController {
         'Alarm Channel',
         importance: Importance.max,
         priority: Priority.high,
+        ongoing: true, // Make notification persistent
+        autoCancel: false, // Prevent automatic dismissal
       );
       const notificationDetails = NotificationDetails(android: androidDetails);
 
@@ -170,6 +161,8 @@ class HomeController extends GetxController {
       'Alarm Channel',
       importance: Importance.max,
       priority: Priority.high,
+      ongoing: true, // Make notification persistent
+      autoCancel: false, // Prevent automatic dismissal
     );
 
     const notificationDetails = NotificationDetails(android: androidDetails);
@@ -239,6 +232,8 @@ class HomeController extends GetxController {
           'Alarm Channel',
           importance: Importance.max,
           priority: Priority.high,
+          ongoing: true, // Make notification persistent
+          autoCancel: false, // Prevent automatic dismissal
         );
 
         const notificationDetails = NotificationDetails(android: androidDetails);
