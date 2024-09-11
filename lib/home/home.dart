@@ -150,6 +150,7 @@ class _HomeState extends State<Home> {
           ),
           floatingActionButton: FloatingActionButton(
             onPressed: () => _addAlarmDialog(context),
+            // onPressed: () => controller.initializeNotifications(),
             child: const Icon(Icons.add),
             backgroundColor: Colors.blueGrey[800],
           ),

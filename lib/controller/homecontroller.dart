@@ -1,22 +1,24 @@
+import 'dart:io';
+
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:get/get.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:ufs/api/api.dart';
-import 'package:ufs/model/alarmmodel.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'dart:io';
-import 'package:flutter/services.dart';
+
+import 'package:ufs/api/api.dart';
+import 'package:ufs/model/alarmmodel.dart';
 
 class HomeController extends GetxController {
   late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
   List<AlarmModel> alarms = [];
   final box = GetStorage();
-  static const platform = MethodChannel('com.example.ufs/permissions');
   List current_weather = [];
   List current_weather_units = [];
   bool weatherLoaded = false;
@@ -26,9 +28,11 @@ class HomeController extends GetxController {
     super.onInit();
     await _requestPermissions();
     tz.initializeTimeZones(); // Initialize timezone data
-    initializeNotifications();
+    flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+    await initializeNotifications(); // Ensure notifications are initialized before use
     loadAlarms();
     fetchWeather();
+    await schedulePeriodicChecks();
   }
 
   Future<void> _requestPermissions() async {
@@ -74,36 +78,45 @@ class HomeController extends GetxController {
     return await Geolocator.getCurrentPosition();
   }
 
-  void initializeNotifications() async {
-    flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  Future<void> initializeNotifications() async {
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'alarm_channel_id', // ID
+      'Alarm Channel', // Name
+      description: 'This channel is used for alarm notifications',
+      importance: Importance.max,
+      sound: RawResourceAndroidNotificationSound('notification'), // Ensure you have a sound file named `notification` in `res/raw`
+    );
 
-    const androidInitializationSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initializationSettings = InitializationSettings(android: androidInitializationSettings);
+    final InitializationSettings initializationSettings = InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    );
 
     await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
-    const androidNotificationChannel = AndroidNotificationChannel(
-      'alarm_channel_id',
-      'Alarm Channel',
-      description: 'This channel is used for alarm notifications.',
-      importance: Importance.max,
-      playSound: true,
-      sound: RawResourceAndroidNotificationSound('swipe_sound.mp3'),
+    await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(channel);
+
+    // Show a test notification to verify setup
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      'Hello',
+      'This is a local notification',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'alarm_channel_id',
+          'Alarm Channel',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+      ),
+      payload: 'item x',
     );
-
-    await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(androidNotificationChannel);
-  }
-
-  void loadAlarms() {
-    List<dynamic> storedAlarms = box.read('alarms') ?? [];
-    alarms = storedAlarms.map((alarm) => AlarmModel.fromMap(alarm)).toList();
-    update();
   }
 
   Future<void> setAlarm(AlarmModel alarm) async {
     try {
       final alarmTime = _calculateAlarmTime(alarm);
+      print('Setting alarm for: ${alarmTime.toLocal()}'); // Debug log
+
       const androidDetails = AndroidNotificationDetails(
         'alarm_channel_id',
         'Alarm Channel',
@@ -142,6 +155,7 @@ class HomeController extends GetxController {
       alarm.time.minute,
     );
 
+    // Set alarm to the next day if it's already past the current time
     return alarmTime.isBefore(now) ? alarmTime.add(Duration(days: 1)) : alarmTime;
   }
 
@@ -205,5 +219,46 @@ class HomeController extends GetxController {
   void _saveAlarms() {
     List<Map<String, dynamic>> storedAlarms = alarms.map((alarm) => alarm.toMap()).toList();
     box.write('alarms', storedAlarms);
+  }
+
+  void loadAlarms() {
+    List<dynamic> storedAlarms = box.read('alarms') ?? [];
+    alarms = storedAlarms.map((alarm) => AlarmModel.fromMap(alarm)).toList();
+    update();
+  }
+
+  Future<void> alarmService() async {
+    final now = tz.TZDateTime.now(tz.local);
+
+    for (var alarm in alarms) {
+      final alarmTime = _calculateAlarmTime(alarm);
+
+      if (alarmTime.isBefore(now) || alarmTime.isAtSameMomentAs(now)) {
+        const androidDetails = AndroidNotificationDetails(
+          'alarm_channel_id',
+          'Alarm Channel',
+          importance: Importance.max,
+          priority: Priority.high,
+        );
+
+        const notificationDetails = NotificationDetails(android: androidDetails);
+
+        await flutterLocalNotificationsPlugin.show(
+          alarms.indexOf(alarm),
+          'Alarm',
+          alarm.label,
+          notificationDetails,
+          payload: 'item x',
+        );
+      }
+    }
+  }
+
+  Future<void> schedulePeriodicChecks() async {
+    await AndroidAlarmManager.periodic(
+      const Duration(minutes: 1),
+      0, // Alarm ID
+      alarmService,
+    );
   }
 }
